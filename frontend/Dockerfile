@@ -26,11 +26,12 @@ ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY \
 RUN pnpm run build
 
 FROM nginx:alpine
-COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/build /usr/share/nginx/html
 
-# nginx:alpine's entrypoint runs envsubst on templates/*.template into
-# conf.d/*.conf at startup, substituting $PORT for whatever Railway assigns.
-ENV PORT=80
+# Fixed port rather than substituting Railway's dynamic $PORT at container
+# start: one less moving part to debug. In the Railway service's Networking
+# settings, make sure the target port is set to 80 (should auto-detect from
+# EXPOSE below, since Dockerfile builds are picked up from this exact name now).
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
