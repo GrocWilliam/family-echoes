@@ -18,6 +18,6 @@ USER echoes
 
 # Railway (and most PaaS) assign the listen port via $PORT at runtime; 3000 is
 # just the local-dev fallback baked into main.go.
-ENV PORT=3000
-EXPOSE 3000
+ENV PORT=8080
+EXPOSE 8080
 CMD ["./echoes"]
