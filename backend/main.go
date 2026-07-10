@@ -13,9 +13,10 @@ import (
 )
 
 func main() {
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal("Error loading .env file")
+	// Only present locally — in deployment, env vars come from the platform
+	// directly (e.g. Railway), so a missing .env file here is expected, not fatal.
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using the environment as-is")
 	}
 
 	config.InitializeFirebase()
@@ -33,5 +34,10 @@ func main() {
 
 	routes.Use(app)
 
-	log.Fatal(app.Listen(":3000"))
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "3000"
+	}
+
+	log.Fatal(app.Listen(":" + port))
 }

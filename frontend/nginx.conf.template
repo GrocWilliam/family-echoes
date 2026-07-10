@@ -1,0 +1,19 @@
+server {
+    listen ${PORT};
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Vite's hashed asset filenames never change contents under the same name.
+    location /_app/immutable/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # This is a client-only SPA (adapter-static with a fallback page): routes
+    # like /album/some-name don't exist as files, so unmatched paths must fall
+    # back to index.html and let SvelteKit's router take over.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
