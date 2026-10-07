@@ -2,48 +2,22 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
+	"errors"
+	"net/url"
 	"strings"
 	"time"
 
 	"echoes.com/m/config"
 	"echoes.com/m/models"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"echoes.com/m/store"
 	"github.com/gofiber/fiber/v3"
-	"github.com/google/uuid"
 )
-
-const metadataPath = "/tmp/photos-metadata.json" // Fichier local temporaire
 
 const maxPhotoSize = 20 << 20 // 20 MB
 
-func loadMetadata() (*models.Metadata, error) {
-	data, err := os.ReadFile(metadataPath)
-	if err != nil {
-		return &models.Metadata{}, nil // Retourne une liste vide si pas de fichier
-	}
-
-	var metadata models.Metadata
-	json.Unmarshal(data, &metadata)
-	return &metadata, nil
-}
-
-func saveMetadata(metadata *models.Metadata) error {
-	data, err := json.MarshalIndent(metadata, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(metadataPath, data, 0644)
-}
-
 // PhotoResponse is the API shape for a photo: unlike models.Photo, its URL is
-// a presigned link generated fresh for this request rather than a value
-// persisted to disk, since a stored URL would eventually expire.
+// a presigned link rather than the bucket key, since a stored URL would
+// eventually expire.
 type PhotoResponse struct {
 	ID         string    `json:"id"`
 	FileName   string    `json:"file_name"`
@@ -77,30 +51,49 @@ func toPhotoResponses(ctx context.Context, photos []models.Photo) []PhotoRespons
 	return responses
 }
 
+// albumParam returns the decoded :id param. Fiber hands params back still
+// percent-encoded (UnescapePath is off, and must stay off so an encoded "/"
+// can't change routing), so "Été" would otherwise arrive as "%C3%89t%C3%A9".
+func albumParam(c fiber.Ctx) (string, error) {
+	name, err := url.PathUnescape(c.Params("id"))
+	if err != nil {
+		return "", store.ErrInvalidAlbumName
+	}
+	name = strings.TrimSpace(name)
+	if err := store.ValidateAlbumName(name); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
 // GET /api/albums/:id/photos - Récupérer les photos d'un album
 func HandlerGetPhotos(c fiber.Ctx) error {
-	albumName := c.Params("id")
+	albumName, err := albumParam(c)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid album name"})
+	}
 
-	metadata, _ := loadMetadata()
-
-	var filtered []models.Photo
-	for _, p := range metadata.Photos {
-		if p.AlbumName == albumName {
-			filtered = append(filtered, p)
-		}
+	photos, err := store.ListAlbumPhotos(c.Context(), albumName)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to list photos"})
 	}
 
 	return c.JSON(fiber.Map{
-		"photos": toPhotoResponses(context.Background(), filtered),
-		"total":  len(filtered),
+		"photos": toPhotoResponses(c.Context(), photos),
+		"total":  len(photos),
 	})
 }
 
-// POST /api/albums/:id/photos - Uploader une photo dans le bucket et l'enregistrer
+// GET /api/albums/:id - Alias de GET /api/albums/:id/photos
+func HandlerGetAlbum(c fiber.Ctx) error {
+	return HandlerGetPhotos(c)
+}
+
+// POST /api/albums/:id/photos - Uploader une photo dans le bucket
 func HandlerUploadPhoto(c fiber.Ctx) error {
-	albumName := c.Params("id")
-	if albumName == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "album name is required"})
+	albumName, err := albumParam(c)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid album name"})
 	}
 
 	fileHeader, err := c.FormFile("photo")
@@ -123,59 +116,17 @@ func HandlerUploadPhoto(c fiber.Ctx) error {
 	}
 	defer file.Close()
 
-	key := fmt.Sprintf("%s/%s%s", albumName, uuid.NewString(), filepath.Ext(fileHeader.Filename))
+	uploader, _ := c.Locals("user_email").(string)
 
-	_, err = config.StorageClient.PutObject(context.Background(), &s3.PutObjectInput{
-		Bucket:      aws.String(config.StorageBucket),
-		Key:         aws.String(key),
-		Body:        file,
-		ContentType: aws.String(contentType),
-	})
+	photo, err := store.PutPhoto(c.Context(), albumName, fileHeader.Filename, contentType, uploader, file)
 	if err != nil {
+		if errors.Is(err, store.ErrInvalidAlbumName) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid album name"})
+		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to upload photo"})
 	}
 
-	uploader, _ := c.Locals("user_email").(string)
-
-	newPhoto := models.Photo{
-		ID:         uuid.NewString(),
-		FileName:   fileHeader.Filename,
-		Key:        key,
-		AlbumName:  albumName,
-		Uploader:   uploader,
-		UploadedAt: time.Now(),
-	}
-
-	metadata, _ := loadMetadata()
-	metadata.Photos = append(metadata.Photos, newPhoto)
-
-	if err := saveMetadata(metadata); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to save photo metadata"})
-	}
-
-	return c.Status(fiber.StatusCreated).JSON(toPhotoResponse(context.Background(), newPhoto))
-}
-
-// DELETE /api/photos/:id - Supprimer une photo
-func HandlerDeletePhoto(c fiber.Ctx) error {
-	id := c.Params("id")
-
-	metadata, _ := loadMetadata()
-
-	// Filtrer les photos (supprimer celle qui match l'ID)
-	var filtered []models.Photo
-	for _, p := range metadata.Photos {
-		if p.ID != id {
-			filtered = append(filtered, p)
-		}
-	}
-
-	metadata.Photos = filtered
-
-	// Sauvegarder les métadonnées mises à jour
-	saveMetadata(metadata)
-
-	return c.Status(fiber.StatusOK).JSON(map[string]string{"message": "Supprimé"})
+	return c.Status(fiber.StatusCreated).JSON(toPhotoResponse(c.Context(), photo))
 }
 
 type AlbumSummary struct {
@@ -192,11 +143,16 @@ type albumAccumulator struct {
 
 // GET /api/albums - Lister les albums avec le nombre de photos et une couverture
 func HandlerGetAlbums(c fiber.Ctx) error {
-	metadata, _ := loadMetadata()
+	photos, err := store.ListAllPhotos(c.Context())
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to list albums"})
+	}
 
+	// Photos come back oldest first, so each album's cover is its first photo
+	// and albums are ordered by when they were started.
 	accumulators := make(map[string]*albumAccumulator)
 	var order []string
-	for _, photo := range metadata.Photos {
+	for _, photo := range photos {
 		acc, ok := accumulators[photo.AlbumName]
 		if !ok {
 			acc = &albumAccumulator{Name: photo.AlbumName, CoverKey: photo.Key}
@@ -206,11 +162,10 @@ func HandlerGetAlbums(c fiber.Ctx) error {
 		acc.Count++
 	}
 
-	ctx := context.Background()
 	albums := make([]AlbumSummary, 0, len(order))
 	for _, name := range order {
 		acc := accumulators[name]
-		coverURL, err := config.PresignPhotoURL(ctx, acc.CoverKey)
+		coverURL, err := config.PresignPhotoURL(c.Context(), acc.CoverKey)
 		if err != nil {
 			coverURL = ""
 		}
@@ -220,25 +175,5 @@ func HandlerGetAlbums(c fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"albums": albums,
 		"total":  len(albums),
-	})
-}
-
-// GET /api/albums/:id - Filtrer les photos par album
-func HandlerGetAlbum(c fiber.Ctx) error {
-	albumName := c.Params("id")
-
-	metadata, _ := loadMetadata()
-
-	// Filtrer les photos par album
-	var filtered []models.Photo
-	for _, p := range metadata.Photos {
-		if p.AlbumName == albumName {
-			filtered = append(filtered, p)
-		}
-	}
-
-	return c.JSON(fiber.Map{
-		"photos": toPhotoResponses(context.Background(), filtered),
-		"total":  len(filtered),
 	})
 }

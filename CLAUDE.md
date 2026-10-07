@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Echoes is a private family photobook app: family members sign in via a Firebase magic link
 (passwordless email link), then view/upload photos organized into albums. Photos are stored in a
-Railway bucket (S3-compatible object storage) — this integration is not yet implemented.
+Railway bucket (S3-compatible object storage), which is also the only datastore.
 
 The repo has two independent apps, each with its own dependency tree and Dockerfile:
 
@@ -82,12 +82,15 @@ verification only:
 
 - `backend/routes/routes.go` wires all routes under `/api`. `/api/auth/*` is public;
   `/api/albums/*` is gated behind `middlewares.FirebaseAuth`.
-- Photo/album data currently lives in a flat JSON file at `/tmp/photos-metadata.json`
-  (`backend/handlers/handler_photo.go`, `loadMetadata`/`saveMetadata`) — this is a placeholder,
-  not a real datastore, and won't survive a restart or scale past one instance.
-- `backend/models/model_photo.go` defines the `Photo`/`Metadata` shapes used by the JSON store.
-- Railway bucket photo upload/storage is not yet wired up — uploads currently just accept a
-  pre-existing `url` field in the request body.
+- There is no database: `backend/store/photo_store.go` rebuilds albums by listing the bucket.
+  Object keys are `<album name>/<uuid><ext>` (the album exists only as a key prefix); the
+  uploader, original filename and exact upload time are stored as S3 user metadata
+  (query-escaped) and read back with `HeadObject`, cached in memory since objects are never
+  overwritten.
+- Album names arrive percent-encoded from Fiber params (`UnescapePath` is off on purpose);
+  `albumParam` in `backend/handlers/handler_photo.go` decodes and validates them.
+- The API never exposes bucket keys — photos are served via presigned URLs
+  (`config.PresignPhotoURL`).
 
 ### Frontend structure
 
