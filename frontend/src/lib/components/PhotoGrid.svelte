@@ -13,9 +13,10 @@
 		>
 			<div class="h-full w-full overflow-hidden bg-stone-200">
 				<img
-					src={photo.url}
+					src={photo.thumb_url ?? photo.url}
 					alt={photo.file_name}
 					loading="lazy"
+					decoding="async"
 					class="h-full w-full object-cover"
 				/>
 			</div>

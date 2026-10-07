@@ -87,6 +87,12 @@ verification only:
   uploader, original filename and exact upload time are stored as S3 user metadata
   (query-escaped) and read back with `HeadObject`, cached in memory since objects are never
   overwritten.
+- Thumbnails (~480px JPEG) are generated in the browser (`frontend/src/lib/images.ts`, which also
+  converts HEIC to JPEG where the browser can decode it) and uploaded alongside the photo; they're
+  stored at `<album>/thumbs/<uuid>.jpg` and exposed as `thumb_url`. Photos without one fall back to
+  the full `url`.
+- Renaming an album (`PATCH /api/albums/:id`) copies every object to the new prefix, then deletes
+  the old ones — not atomic, but retrying finishes a partial rename.
 - Album names arrive percent-encoded from Fiber params (`UnescapePath` is off on purpose);
   `albumParam` in `backend/handlers/handler_photo.go` decodes and validates them.
 - The API never exposes bucket keys — photos are served via presigned URLs

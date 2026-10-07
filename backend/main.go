@@ -29,7 +29,7 @@ func main() {
 	app.Use(cors.New(cors.Config{
 		AllowOrigins: strings.Split(os.Getenv("FRONTEND_URL"), ","),
 		AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization"},
-		AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 	}))
 
 	routes.Use(app)

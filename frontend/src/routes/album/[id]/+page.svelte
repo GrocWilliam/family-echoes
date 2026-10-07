@@ -1,11 +1,17 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { apiFetch } from '$lib/api';
 	import { authStore } from '$lib/authentication';
+	import { prepareUpload, UploadError } from '$lib/images';
 	import type { Photo } from '$lib/types';
 	import PhotoGrid from '$lib/components/PhotoGrid.svelte';
 	import PhotoViewer from '$lib/components/PhotoViewer.svelte';
+
+	// Each upload decodes a full-size photo in memory to make its thumbnail;
+	// more than two at once risks running phones out of memory.
+	const UPLOAD_CONCURRENCY = 2;
 
 	let albumName = $derived(decodeURIComponent(page.params.id ?? ''));
 	let photos = $state<Photo[]>([]);
@@ -15,7 +21,12 @@
 	let fileInput: HTMLInputElement | undefined = $state();
 	let uploading = $state(false);
 	let uploadProgress = $state({ done: 0, total: 0 });
-	let uploadError = $state('');
+	let uploadFailures = $state<{ name: string; reason: string }[]>([]);
+
+	let renaming = $state(false);
+	let renameValue = $state('');
+	let renameSaving = $state(false);
+	let renameError = $state('');
 
 	$effect(() => {
 		load(albumName);
@@ -39,6 +50,40 @@
 		fileInput?.click();
 	}
 
+	function reasonForStatus(code: number): string {
+		if (code === 413) return 'trop volumineuse (max 20 Mo)';
+		if (code === 415) return 'format non pris en charge';
+		return "échec de l'envoi";
+	}
+
+	async function uploadOne(file: File) {
+		try {
+			const prepared = await prepareUpload(file);
+			const form = new FormData();
+			form.append('photo', prepared.photo, prepared.fileName);
+			if (prepared.thumbnail) form.append('thumbnail', prepared.thumbnail, 'thumbnail.jpg');
+
+			const res = await apiFetch(`/api/albums/${encodeURIComponent(albumName)}/photos`, {
+				method: 'POST',
+				body: form
+			});
+			if (!res.ok) {
+				uploadFailures.push({ name: file.name, reason: reasonForStatus(res.status) });
+				return;
+			}
+
+			// Show each photo as soon as it lands rather than after the batch.
+			const photo: Photo = await res.json();
+			photos = [...photos, photo].sort((a, b) => a.uploaded_at.localeCompare(b.uploaded_at));
+			if (status !== 'ready') status = 'ready';
+		} catch (err) {
+			const reason = err instanceof UploadError ? err.message : "échec de l'envoi";
+			uploadFailures.push({ name: file.name, reason });
+		} finally {
+			uploadProgress.done += 1;
+		}
+	}
+
 	async function handleFiles(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const files = input.files ? Array.from(input.files) : [];
@@ -46,26 +91,78 @@
 		if (files.length === 0) return;
 
 		uploading = true;
-		uploadError = '';
+		uploadFailures = [];
 		uploadProgress = { done: 0, total: files.length };
 
-		for (const file of files) {
-			try {
-				const form = new FormData();
-				form.append('photo', file);
-				const res = await apiFetch(`/api/albums/${encodeURIComponent(albumName)}/photos`, {
-					method: 'POST',
-					body: form
-				});
-				if (!res.ok) throw new Error();
-			} catch {
-				uploadError = "Certaines photos n'ont pas pu être envoyées.";
+		const queue = [...files];
+		const worker = async () => {
+			for (let file = queue.shift(); file; file = queue.shift()) {
+				await uploadOne(file);
 			}
-			uploadProgress = { ...uploadProgress, done: uploadProgress.done + 1 };
-		}
+		};
+		await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, files.length) }, worker));
 
 		uploading = false;
-		await load(albumName);
+	}
+
+	async function deletePhoto(photo: Photo) {
+		const res = await apiFetch(
+			`/api/albums/${encodeURIComponent(albumName)}/photos/${encodeURIComponent(photo.id)}`,
+			{ method: 'DELETE' }
+		);
+		// 404 means it's already gone, which is what the user wanted anyway.
+		if (!res.ok && res.status !== 404) throw new Error();
+
+		photos = photos.filter((p) => p.id !== photo.id);
+		if (photos.length === 0) {
+			activeIndex = null;
+		} else if (activeIndex !== null) {
+			activeIndex = Math.min(activeIndex, photos.length - 1);
+		}
+	}
+
+	function startRename() {
+		renameValue = albumName;
+		renameError = '';
+		renaming = true;
+	}
+
+	async function submitRename(event: SubmitEvent) {
+		event.preventDefault();
+		const newName = renameValue.trim();
+		if (!newName || newName === albumName) {
+			renaming = false;
+			return;
+		}
+		if (/[/\\]/.test(newName)) {
+			renameError = 'Le nom ne peut pas contenir « / » ni « \\ ».';
+			return;
+		}
+
+		renameSaving = true;
+		renameError = '';
+		try {
+			// An album with no photos exists only as a URL, so there's nothing
+			// to rename server-side.
+			if (photos.length > 0) {
+				const res = await apiFetch(`/api/albums/${encodeURIComponent(albumName)}`, {
+					method: 'PATCH',
+					body: JSON.stringify({ name: newName })
+				});
+				if (res.status === 409) {
+					renameError = 'Un album porte déjà ce nom.';
+					return;
+				}
+				if (!res.ok) throw new Error();
+			}
+
+			renaming = false;
+			await goto(resolve(`/album/${encodeURIComponent(newName)}`), { replaceState: true });
+		} catch {
+			renameError = "Impossible de renommer l'album.";
+		} finally {
+			renameSaving = false;
+		}
 	}
 </script>
 
@@ -77,7 +174,50 @@
 	>
 		←
 	</a>
-	<h1 class="truncate px-1 font-serif text-3xl font-semibold text-ink">{albumName}</h1>
+
+	{#if renaming}
+		<form onsubmit={submitRename} class="flex gap-2 px-1">
+			<!-- svelte-ignore a11y_autofocus -->
+			<input
+				type="text"
+				bind:value={renameValue}
+				maxlength="200"
+				autofocus
+				aria-label="Nouveau nom de l'album"
+				class="min-w-0 flex-1 rounded-xl border border-ink/15 bg-paper px-3 py-2 font-serif text-xl text-ink outline-none focus:border-ink/40"
+			/>
+			<button
+				type="submit"
+				disabled={renameSaving}
+				class="rounded-xl bg-ink px-4 py-2 text-sm font-medium text-paper active:bg-ink/80 disabled:opacity-50"
+			>
+				{renameSaving ? '…' : 'OK'}
+			</button>
+			<button
+				type="button"
+				onclick={() => (renaming = false)}
+				class="rounded-xl px-3 py-2 text-sm text-ink/60 active:bg-ink/5"
+			>
+				Annuler
+			</button>
+		</form>
+		{#if renameError}
+			<p role="alert" class="mt-2 px-1 text-sm text-red-700">{renameError}</p>
+		{/if}
+	{:else}
+		<div class="flex items-start justify-between gap-2 px-1">
+			<h1 class="min-w-0 truncate font-serif text-3xl font-semibold text-ink">{albumName}</h1>
+			{#if $authStore.isAdmin}
+				<button
+					type="button"
+					onclick={startRename}
+					class="mt-1 shrink-0 rounded-full px-3 py-1.5 text-sm text-ink/50 active:bg-ink/5"
+				>
+					Renommer
+				</button>
+			{/if}
+		</div>
+	{/if}
 	<div class="mt-2 mb-5 h-px w-16 bg-ink/20"></div>
 
 	{#if status === 'loading'}
@@ -94,8 +234,22 @@
 		<PhotoGrid {photos} onSelect={(i) => (activeIndex = i)} />
 	{/if}
 
-	{#if uploadError}
-		<p role="alert" class="mt-3 text-sm text-red-700">{uploadError}</p>
+	{#if uploadFailures.length > 0}
+		<div
+			role="alert"
+			class="mt-4 rounded-md bg-red-50 p-3 text-sm text-red-800 ring-1 ring-red-200"
+		>
+			<p class="font-medium">
+				{uploadFailures.length === 1
+					? "1 photo n'a pas pu être envoyée :"
+					: `${uploadFailures.length} photos n'ont pas pu être envoyées :`}
+			</p>
+			<ul class="mt-1 space-y-0.5">
+				{#each uploadFailures as failure, i (i)}
+					<li class="truncate">{failure.name} — {failure.reason}</li>
+				{/each}
+			</ul>
+		</div>
 	{/if}
 </div>
 
@@ -134,5 +288,6 @@
 		index={activeIndex}
 		onClose={() => (activeIndex = null)}
 		onNavigate={(i) => (activeIndex = i)}
+		onDelete={$authStore.isAdmin ? deletePhoto : undefined}
 	/>
 {/if}

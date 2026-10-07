@@ -6,13 +6,34 @@
 		photos,
 		index,
 		onClose,
-		onNavigate
+		onNavigate,
+		onDelete
 	}: {
 		photos: Photo[];
 		index: number;
 		onClose: () => void;
 		onNavigate: (index: number) => void;
+		// Only passed for admins; the server enforces it regardless.
+		onDelete?: (photo: Photo) => Promise<void>;
 	} = $props();
+
+	let deleting = $state(false);
+	let deleteError = $state('');
+
+	async function handleDelete() {
+		if (!onDelete || !photo || deleting) return;
+		if (!window.confirm('Supprimer cette photo ? Cette action est définitive.')) return;
+
+		deleting = true;
+		deleteError = '';
+		try {
+			await onDelete(photo);
+		} catch {
+			deleteError = 'Impossible de supprimer la photo.';
+		} finally {
+			deleting = false;
+		}
+	}
 
 	let photo = $derived(photos[index]);
 	let formattedDate = $derived(
@@ -48,6 +69,17 @@
 		✕
 	</button>
 
+	{#if onDelete}
+		<button
+			type="button"
+			class="absolute top-[max(0.75rem,env(safe-area-inset-top))] left-3 z-10 rounded-full bg-black/40 px-4 py-2 text-sm text-white disabled:opacity-50"
+			onclick={handleDelete}
+			disabled={deleting}
+		>
+			{deleting ? 'Suppression…' : 'Supprimer'}
+		</button>
+	{/if}
+
 	<div class="flex flex-1 flex-col items-center justify-center overflow-hidden px-4">
 		{#if photo}
 			{#key photo.id}
@@ -63,6 +95,9 @@
 					<p class="mt-2 max-w-full truncate px-2 font-serif text-sm text-ink/70 italic">
 						{formattedDate}
 					</p>
+					{#if deleteError}
+						<p role="alert" class="px-2 pb-1 text-sm text-red-700">{deleteError}</p>
+					{/if}
 				</div>
 			{/key}
 		{/if}

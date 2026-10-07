@@ -10,6 +10,7 @@ type Photo struct {
 	ID         string    `json:"id"`
 	FileName   string    `json:"file_name"`
 	Key        string    `json:"key"`
+	ThumbKey   string    `json:"thumb_key,omitempty"`
 	AlbumName  string    `json:"album_name"`
 	Uploader   string    `json:"uploader"`
 	UploadedAt time.Time `json:"uploaded_at"`
