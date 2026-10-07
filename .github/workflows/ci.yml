@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Run gofmt on:"; echo "$unformatted"; exit 1
+          fi
+      - run: go vet ./...
+      - run: go vet -tags mage magefile.go
+      # The store and handler tests run against an in-memory S3 server
+      # (internal/s3fake), so no credentials or services are needed.
+      - run: go test -race ./...
+      - run: go build ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      # Reads the pnpm version from package.json's packageManager field.
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@v5
+        with:
+          # Keep in step with frontend/Dockerfile.
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check
+      - run: pnpm run lint
+      - run: pnpm run build

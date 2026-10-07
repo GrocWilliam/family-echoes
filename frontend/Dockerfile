@@ -25,7 +25,7 @@ ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY \
 
 RUN pnpm run build
 
-FROM nginx:alpine
+FROM nginx:1.30-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/build /usr/share/nginx/html
 

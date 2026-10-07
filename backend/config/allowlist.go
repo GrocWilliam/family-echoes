@@ -12,8 +12,11 @@ func emailInEnvList(envVar string, email string) bool {
 	}
 
 	email = strings.ToLower(strings.TrimSpace(email))
-	for _, e := range strings.Split(list, ",") {
-		if strings.ToLower(strings.TrimSpace(e)) == email {
+	if email == "" {
+		return false
+	}
+	for _, e := range SplitList(list) {
+		if strings.ToLower(e) == email {
 			return true
 		}
 	}

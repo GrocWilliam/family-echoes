@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 	"os"
-	"strings"
 
 	"echoes.com/m/config"
 	"echoes.com/m/routes"
@@ -19,6 +18,7 @@ func main() {
 		log.Println("No .env file found, using the environment as-is")
 	}
 
+	config.CheckEnv()
 	config.InitializeFirebase()
 	config.InitializeStorage()
 
@@ -27,7 +27,7 @@ func main() {
 	})
 
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: strings.Split(os.Getenv("FRONTEND_URL"), ","),
+		AllowOrigins: config.SplitList(os.Getenv("FRONTEND_URL")),
 		AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization"},
 		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 	}))

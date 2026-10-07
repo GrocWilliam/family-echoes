@@ -10,6 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.105.0
 	github.com/gofiber/fiber/v3 v3.4.0
 	github.com/google/uuid v1.6.0
+	github.com/johannesboyne/gofakes3 v1.2.0
 	github.com/joho/godotenv v1.5.1
 	github.com/magefile/mage v1.17.2
 	golang.org/x/sync v0.22.0
@@ -66,6 +67,7 @@ require (
 	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
+	github.com/ryszard/goskiplist v0.0.0-20150312221310-2dfbae5fcf46 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
@@ -79,12 +81,14 @@ require (
 	go.opentelemetry.io/otel/sdk v1.43.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.43.0 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
+	go.shabbyrobe.org/gocovmerge v0.0.0-20230507111327-fa4f82cfbf4d // indirect
 	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
+	golang.org/x/tools v0.47.0 // indirect
 	google.golang.org/appengine/v2 v2.0.6 // indirect
 	google.golang.org/genproto v0.0.0-20260511170946-3700d4141b60 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260511170946-3700d4141b60 // indirect

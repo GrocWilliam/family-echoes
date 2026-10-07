@@ -13,7 +13,9 @@ The repo has two independent apps, each with its own dependency tree and Dockerf
 - `backend/` — Go + Fiber v3 API
 - `frontend/` — SvelteKit 5 (runes mode) + Tailwind v4
 
-There is no root-level build; work in each subdirectory independently.
+There is no root-level build; work in each subdirectory independently. CI
+(`.github/workflows/ci.yml`) runs the backend and frontend checks below on every push to `main`
+and on pull requests.
 
 ## Commands
 
@@ -22,12 +24,16 @@ There is no root-level build; work in each subdirectory independently.
 - Run in dev mode with hot reload: `mage dev` (wraps `air main.go`; requires the `air` binary and
   the `mage` CLI installed)
 - Build: `mage build` (runs `go build -o Echoes .`) or plain `go build ./...`
+- Test: `mage test` or `go test ./...`; single test: `go test ./store -run TestRenameAlbum`
+- Everything CI runs (gofmt, vet, tests): `mage check`
 - Install/update deps: `go mod tidy`
-- Vet: `go vet ./...`
-- No test suite exists yet.
 
-The backend loads `backend/.env` on startup via `godotenv` and calls `log.Fatal` if it's missing —
-a `.env` file must exist (see below) even if empty of secrets.
+Store and handler tests run against an in-memory S3 server (`backend/internal/s3fake`, built on
+gofakes3), so they need no credentials or network. `FirebaseAuth` itself is not unit-tested (it
+needs a real Firebase project); handler tests mount routes without it and set `user_email` directly.
+
+The backend loads `backend/.env` via `godotenv` if present (in deployment, variables come from the
+platform), then `config.CheckEnv` exits listing any missing required variable.
 
 ### Frontend (`frontend/`)
 
@@ -41,14 +47,19 @@ Package manager is pnpm (`pnpm-lock.yaml`, `pnpm-workspace.yaml`), though npm sc
 
 ## Environment variables
 
-Both apps read from a local `.env` file (never commit real secrets into these):
+Both apps read from a local, gitignored `.env`; `backend/.env.example` and
+`frontend/.env.example` document every variable. When adding one, update the example file (and
+`requiredEnv` in `backend/config/env.go` if the API can't run without it).
 
-**`backend/.env`**
-- `FIREBASE_PROJECT_ID`
-- `GOOGLE_APPLICATION_CREDENTIALS` — path to a Firebase service-account JSON file
-- `ALLOWED_EMAILS` — comma-separated allowlist of family emails permitted to request a magic link
+**Backend**
+- `FIREBASE_PROJECT_ID`, plus `GOOGLE_APPLICATION_CREDENTIALS` (path to a service-account JSON,
+  local dev) or `GOOGLE_APPLICATION_CREDENTIALS_JSON` (its contents, deployment)
+- `ALLOWED_EMAILS` — who may sign in and view; `ADMIN_EMAILS` — who may upload/delete/rename
+- `FRONTEND_URL` — comma-separated CORS origins
+- `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`
+- `PORT` — defaults to 8080
 
-**`frontend/.env`**
+**Frontend** (baked in at build time — Docker needs them as `--build-arg`)
 - `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`
 - `VITE_BACKEND_URL` — base URL of the Go API (defaults to `http://localhost:8080`, `frontend/src/lib/config.ts`)
 
@@ -68,12 +79,15 @@ verification only:
 2. Only if allowed, the frontend (`frontend/src/lib/authentication.ts`) calls Firebase's
    `sendSignInLinkToEmail`, storing the email in `localStorage` for later completion.
 3. The emailed link lands on `/auth/callback` (`frontend/src/routes/auth/callback/+page.svelte`),
-   which calls `completeSignInFromLink()` to finish sign-in and redirects to `/album`.
+   which calls `completeSignInFromLink()` to finish sign-in and redirects to `/`.
 4. For subsequent API calls, the frontend attaches the Firebase ID token as
    `Authorization: Bearer <token>`. The backend's `middlewares.FirebaseAuth`
    (`backend/handlers/middlewares/firebase_middleware.go`) verifies it via the Admin SDK
    (`config.AuthClient`, initialized in `backend/config/firebase.go`) and sets
-   `c.Locals("user_id")` / `c.Locals("user_email")` for handlers.
+   `c.Locals("user_id")` / `c.Locals("user_email")` for handlers. It re-checks `ALLOWED_EMAILS`:
+   step 1 is only a courtesy, since anyone can call Firebase's client SDK directly.
+5. `middlewares.RequireAdmin` gates writes on `ADMIN_EMAILS`. The frontend learns the role from
+   `GET /api/me` purely to show or hide admin UI.
 
 `frontend/src/lib/authentication.ts` also exposes a Svelte `authStore` kept in sync via
 `onAuthStateChanged`, and `getIdToken()` for attaching auth to fetches.
@@ -103,5 +117,8 @@ verification only:
 - SvelteKit with `ssr = false` (`src/routes/+layout.ts`) — this is a client-rendered SPA, not
   server-rendered.
 - Runes mode is forced project-wide via `vite.config.ts` (except inside `node_modules`).
-- Routes: `/auth/login`, `/auth/callback`, `/album`. `frontend/src/lib/firebase.ts` initializes the
-  Firebase app/client used by `authentication.ts`.
+- Routes: `/` (album list), `/album/[id]` (photos; `id` is the URL-encoded album name),
+  `/auth/login`, `/auth/callback`. The root `+layout.svelte` redirects signed-out users to
+  `/auth/login` everywhere except `/auth/*`.
+- `frontend/src/lib/firebase.ts` initializes the Firebase app/client used by `authentication.ts`;
+  `frontend/src/lib/api.ts` (`apiFetch`) attaches the ID token to backend calls.
