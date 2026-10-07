@@ -64,15 +64,17 @@ func ValidateAlbumName(name string) error {
 	return nil
 }
 
-// PutPhoto uploads a photo and returns the record for it.
-func PutPhoto(ctx context.Context, album, fileName, contentType, uploader string, body io.Reader) (models.Photo, error) {
+// PutPhoto uploads a photo and returns the record for it. ext is the key's
+// file extension (".jpg"), derived by the caller from the verified content
+// type rather than trusted from the client's filename.
+func PutPhoto(ctx context.Context, album, fileName, ext, contentType, uploader string, body io.Reader) (models.Photo, error) {
 	if err := ValidateAlbumName(album); err != nil {
 		return models.Photo{}, err
 	}
 
 	id := uuid.NewString()
 	uploadedAt := time.Now().UTC()
-	key := fmt.Sprintf("%s/%s%s", album, id, strings.ToLower(path.Ext(fileName)))
+	key := fmt.Sprintf("%s/%s%s", album, id, ext)
 
 	_, err := config.StorageClient.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(config.StorageBucket),

@@ -1,6 +1,5 @@
 import { getIdToken } from './authentication';
-
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3000';
+import { BACKEND_URL } from './config';
 
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
 	const token = await getIdToken();

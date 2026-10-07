@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -14,6 +17,46 @@ import (
 )
 
 const maxPhotoSize = 20 << 20 // 20 MB
+
+// Image formats every browser can display, keyed by sniffed content type.
+// SVG is deliberately absent (it can carry script), as is HEIC (only Safari
+// renders it).
+var allowedImageTypes = map[string]string{
+	"image/jpeg": ".jpg",
+	"image/png":  ".png",
+	"image/gif":  ".gif",
+	"image/webp": ".webp",
+	"image/avif": ".avif",
+}
+
+var errUnsupportedImage = errors.New("unsupported image type")
+
+// sniffImageType detects the file's real type from its leading bytes instead
+// of trusting the client-supplied Content-Type header, then rewinds the file
+// so the full contents can be uploaded.
+func sniffImageType(file io.ReadSeeker) (contentType, ext string, err error) {
+	head := make([]byte, 512)
+	n, err := io.ReadFull(file, head)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return "", "", err
+	}
+	head = head[:n]
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return "", "", err
+	}
+
+	contentType = http.DetectContentType(head)
+	// net/http doesn't recognise AVIF: an ISO-BMFF "ftyp" box with an avif brand.
+	if len(head) >= 12 && string(head[4:8]) == "ftyp" && bytes.Contains(head[8:min(len(head), 64)], []byte("avi")) {
+		contentType = "image/avif"
+	}
+
+	ext, ok := allowedImageTypes[contentType]
+	if !ok {
+		return "", "", errUnsupportedImage
+	}
+	return contentType, ext, nil
+}
 
 // PhotoResponse is the API shape for a photo: unlike models.Photo, its URL is
 // a presigned link rather than the bucket key, since a stored URL would
@@ -84,11 +127,6 @@ func HandlerGetPhotos(c fiber.Ctx) error {
 	})
 }
 
-// GET /api/albums/:id - Alias de GET /api/albums/:id/photos
-func HandlerGetAlbum(c fiber.Ctx) error {
-	return HandlerGetPhotos(c)
-}
-
 // POST /api/albums/:id/photos - Uploader une photo dans le bucket
 func HandlerUploadPhoto(c fiber.Ctx) error {
 	albumName, err := albumParam(c)
@@ -105,20 +143,22 @@ func HandlerUploadPhoto(c fiber.Ctx) error {
 		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "photo is too large (max 20MB)"})
 	}
 
-	contentType := fileHeader.Header.Get("Content-Type")
-	if !strings.HasPrefix(contentType, "image/") {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "only image uploads are allowed"})
-	}
-
 	file, err := fileHeader.Open()
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to read photo"})
 	}
 	defer file.Close()
 
+	contentType, ext, err := sniffImageType(file)
+	if errors.Is(err, errUnsupportedImage) {
+		return c.Status(fiber.StatusUnsupportedMediaType).JSON(fiber.Map{"error": "only JPEG, PNG, GIF, WebP and AVIF images are allowed"})
+	} else if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to read photo"})
+	}
+
 	uploader, _ := c.Locals("user_email").(string)
 
-	photo, err := store.PutPhoto(c.Context(), albumName, fileHeader.Filename, contentType, uploader, file)
+	photo, err := store.PutPhoto(c.Context(), albumName, fileHeader.Filename, ext, contentType, uploader, file)
 	if err != nil {
 		if errors.Is(err, store.ErrInvalidAlbumName) {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid album name"})

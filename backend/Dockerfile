@@ -16,8 +16,8 @@ WORKDIR /app
 COPY --from=builder /app/bin/echoes ./echoes
 USER echoes
 
-# Railway (and most PaaS) assign the listen port via $PORT at runtime; 3000 is
-# just the local-dev fallback baked into main.go.
+# Railway (and most PaaS) assign the listen port via $PORT at runtime; 8080 is
+# also the local-dev fallback baked into main.go.
 ENV PORT=8080
 EXPOSE 8080
 CMD ["./echoes"]

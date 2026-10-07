@@ -6,6 +6,7 @@ import {
 	signInWithEmailLink,
 	signOut as firebaseSignOut
 } from 'firebase/auth';
+import { BACKEND_URL } from './config';
 import { auth } from './firebase';
 
 export interface User {
@@ -21,7 +22,6 @@ export interface User {
 }
 
 const EMAIL_STORAGE_KEY = 'echoes:emailForSignIn';
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3000';
 
 export const authStore = writable<User>({
 	email: '',
@@ -53,12 +53,6 @@ async function fetchIsAdmin(idToken: string): Promise<boolean> {
 	} catch {
 		return false;
 	}
-}
-
-export function isAuthenticated() {
-	let current: User = { email: '', isAuth: false, isReady: false, isAdmin: false };
-	authStore.subscribe((value) => (current = value))();
-	return current.isAuth;
 }
 
 // Demande d'envoi du lien de connexion : le backend vérifie d'abord que

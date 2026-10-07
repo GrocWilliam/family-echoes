@@ -16,7 +16,6 @@ func Use(app *fiber.App) {
 
 	albums := api.Group("/albums", middlewares.FirebaseAuth)
 	albums.Get("/", handlers.HandlerGetAlbums)
-	albums.Get("/:id", handlers.HandlerGetAlbum)
 	albums.Get("/:id/photos", handlers.HandlerGetPhotos)
 	albums.Post("/:id/photos", middlewares.RequireAdmin, handlers.HandlerUploadPhoto)
 }

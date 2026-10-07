@@ -50,7 +50,7 @@ Both apps read from a local `.env` file (never commit real secrets into these):
 
 **`frontend/.env`**
 - `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`
-- `VITE_BACKEND_URL` — base URL of the Go API (defaults to `http://localhost:3000`)
+- `VITE_BACKEND_URL` — base URL of the Go API (defaults to `http://localhost:8080`, `frontend/src/lib/config.ts`)
 
 In the Firebase console, Email Link sign-in must be enabled and both dev/prod origins added to
 authorized domains, or `sendSignInLinkToEmail` will fail.
