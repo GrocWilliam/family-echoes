@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -20,14 +21,15 @@ var (
 )
 
 const (
-	photoURLExpiry = time.Hour
-	// Keep serving the same cached presigned URL until shortly before it
-	// actually expires. A photo's URL changing on every request would defeat
-	// the browser's HTTP cache entirely — same bytes, "new" URL, re-downloaded
-	// every time an album is revisited. Object keys are UUID-based and never
-	// overwritten, so the underlying bytes for a given key never change,
-	// making this safe to cache aggressively.
-	photoURLCacheTTL = photoURLExpiry - 5*time.Minute
+	photoURLExpiry = 12 * time.Hour
+	// Keep serving the same cached presigned URL for an hour. A photo's URL
+	// changing on every request would defeat the browser's HTTP cache
+	// entirely — same bytes, "new" URL, re-downloaded every time an album is
+	// revisited. Object keys are UUID-based and never overwritten, so the
+	// underlying bytes for a given key never change, making this safe to cache
+	// aggressively. The gap to photoURLExpiry guarantees every URL handed out
+	// stays valid for 11+ hours, so a page left open doesn't break.
+	photoURLCacheTTL = time.Hour
 )
 
 type cachedPhotoURL struct {
@@ -96,7 +98,7 @@ func PresignPhotoURL(ctx context.Context, key string) (string, error) {
 		Key:    aws.String(key),
 		// Tell the browser it can reuse the image without re-checking, for as
 		// long as we intend to keep serving this same signed URL.
-		ResponseCacheControl: aws.String("private, max-age=3300, immutable"),
+		ResponseCacheControl: aws.String(fmt.Sprintf("private, max-age=%d, immutable", int(photoURLCacheTTL.Seconds()))),
 	}, s3.WithPresignExpires(photoURLExpiry))
 	if err != nil {
 		return "", err
@@ -110,4 +112,12 @@ func PresignPhotoURL(ctx context.Context, key string) (string, error) {
 	photoURLCacheMu.Unlock()
 
 	return request.URL, nil
+}
+
+// ForgetPhotoURL drops a deleted or moved key's cached URL, so the cache
+// doesn't keep every key ever served.
+func ForgetPhotoURL(key string) {
+	photoURLCacheMu.Lock()
+	delete(photoURLCache, key)
+	photoURLCacheMu.Unlock()
 }

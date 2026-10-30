@@ -23,20 +23,26 @@ func FirebaseAuth(c fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid or expired token"})
 	}
 
-	email, _ := decoded.Claims["email"].(string)
-
-	// The token being valid only proves Firebase issued it — anyone can create a
-	// Firebase account via email-link sign-in with any address. The family
-	// allowlist is the actual access control and must be checked here, since this
-	// is the one step a client can't bypass.
-	if !config.IsEmailAllowed(email) {
+	email, ok := allowedEmail(decoded.Claims)
+	if !ok {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "this account is not invited to the family album"})
 	}
 
-	c.Locals("user_id", decoded.UID)
 	c.Locals("user_email", email)
 
 	return c.Next()
+}
+
+// allowedEmail returns the token's email if it may use the app. The token
+// being valid only proves Firebase issued it — anyone can create a Firebase
+// account with any address. The family allowlist is the actual access
+// control, and the email must be verified: enabling email-link sign-in also
+// enables password sign-up, which lets anyone claim an invited address that
+// hasn't signed in yet, unverified.
+func allowedEmail(claims map[string]any) (string, bool) {
+	email, _ := claims["email"].(string)
+	verified, _ := claims["email_verified"].(bool)
+	return email, verified && config.IsEmailAllowed(email)
 }
 
 // RequireAdmin must run after FirebaseAuth. It restricts a route to the

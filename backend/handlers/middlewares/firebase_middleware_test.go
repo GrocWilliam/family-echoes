@@ -7,6 +7,28 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
+func TestAllowedEmail(t *testing.T) {
+	t.Setenv("ALLOWED_EMAILS", "mamie@example.com")
+
+	cases := []struct {
+		name   string
+		claims map[string]any
+		want   bool
+	}{
+		{"verified and invited", map[string]any{"email": "mamie@example.com", "email_verified": true}, true},
+		// e.g. a password account created for an invited address
+		{"unverified", map[string]any{"email": "mamie@example.com", "email_verified": false}, false},
+		{"no verified claim", map[string]any{"email": "mamie@example.com"}, false},
+		{"not invited", map[string]any{"email": "other@example.com", "email_verified": true}, false},
+		{"no email", map[string]any{"email_verified": true}, false},
+	}
+	for _, tc := range cases {
+		if _, got := allowedEmail(tc.claims); got != tc.want {
+			t.Errorf("%s: allowed = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestRequireAdmin(t *testing.T) {
 	t.Setenv("ALLOWED_EMAILS", "mamie@example.com,papi@example.com")
 	t.Setenv("ADMIN_EMAILS", "mamie@example.com")

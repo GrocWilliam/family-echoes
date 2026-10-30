@@ -139,10 +139,7 @@ func HandlerGetPhotos(c fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to list photos"})
 	}
 
-	return c.JSON(fiber.Map{
-		"photos": toPhotoResponses(c.Context(), photos),
-		"total":  len(photos),
-	})
+	return c.JSON(fiber.Map{"photos": toPhotoResponses(c.Context(), photos)})
 }
 
 // POST /api/albums/:id/photos - Uploader une photo dans le bucket
@@ -303,8 +300,5 @@ func HandlerGetAlbums(c fiber.Ctx) error {
 		albums = append(albums, AlbumSummary{Name: acc.Name, Count: acc.Count, CoverURL: coverURL})
 	}
 
-	return c.JSON(fiber.Map{
-		"albums": albums,
-		"total":  len(albums),
-	})
+	return c.JSON(fiber.Map{"albums": albums})
 }

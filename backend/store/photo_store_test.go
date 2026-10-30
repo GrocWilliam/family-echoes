@@ -212,3 +212,50 @@ func TestRenameAlbum(t *testing.T) {
 		t.Errorf("renamed photo = %+v", photos[0])
 	}
 }
+
+func TestRenameAlbumRetryFinishesPartialMove(t *testing.T) {
+	copyTo := func(t *testing.T, photo models.Photo, album string) {
+		t.Helper()
+		_, err := config.StorageClient.CopyObject(t.Context(), &s3.CopyObjectInput{
+			Bucket:     aws.String(config.StorageBucket),
+			CopySource: aws.String(copySource(photo.Key)),
+			Key:        aws.String(album + "/" + photo.ID + ".jpg"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Each case leaves the bucket as an interrupted rename would.
+	cases := map[string]func(t *testing.T, a, b models.Photo){
+		"failed while copying": func(t *testing.T, a, b models.Photo) {
+			copyTo(t, a, "Été")
+		},
+		"failed while deleting": func(t *testing.T, a, b models.Photo) {
+			copyTo(t, a, "Été")
+			copyTo(t, b, "Été")
+			if err := deleteObject(t.Context(), a.Key); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	for name, interrupt := range cases {
+		t.Run(name, func(t *testing.T) {
+			s3fake.Start(t)
+			a := put(t, "Vacances", "a.jpg", "u", false)
+			b := put(t, "Vacances", "b.jpg", "u", false)
+			interrupt(t, a, b)
+
+			if err := RenameAlbum(t.Context(), "Vacances", "Été"); err != nil {
+				t.Fatalf("retry = %v, want nil", err)
+			}
+			want := []string{"Été/" + a.ID + ".jpg", "Été/" + b.ID + ".jpg"}
+			keys := s3fake.Keys(t)
+			slices.Sort(want)
+			slices.Sort(keys)
+			if !slices.Equal(keys, want) {
+				t.Errorf("bucket = %v, want %v", keys, want)
+			}
+		})
+	}
+}

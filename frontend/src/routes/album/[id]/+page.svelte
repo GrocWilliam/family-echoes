@@ -13,7 +13,8 @@
 	// more than two at once risks running phones out of memory.
 	const UPLOAD_CONCURRENCY = 2;
 
-	let albumName = $derived(decodeURIComponent(page.params.id ?? ''));
+	// SvelteKit already decodes params; decoding again breaks names with "%".
+	let albumName = $derived(page.params.id ?? '');
 	let photos = $state<Photo[]>([]);
 	let status = $state<'loading' | 'ready' | 'error'>('loading');
 	let activeIndex = $state<number | null>(null);

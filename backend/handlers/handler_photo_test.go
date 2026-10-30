@@ -244,7 +244,7 @@ func TestRenameAlbumStatuses(t *testing.T) {
 	}
 
 	code, body := send(t, app, httptest.NewRequest("GET", "/api/albums/%C3%89t%C3%A9%202024/photos", nil))
-	if code != 200 || body["total"] != float64(1) {
+	if photos, _ := body["photos"].([]any); code != 200 || len(photos) != 1 {
 		t.Errorf("renamed album: status %d, body %v", code, body)
 	}
 }

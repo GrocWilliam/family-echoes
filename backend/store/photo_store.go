@@ -17,6 +17,7 @@ import (
 	"log"
 	"net/url"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -197,14 +198,18 @@ func DeletePhoto(ctx context.Context, album, id string) error {
 			continue
 		}
 
-		keys := []string{photo.Key}
+		// Thumbnail first: if the photo's delete then fails, a retry still
+		// finds the photo and finishes, instead of orphaning the thumbnail.
+		var keys []string
 		if photo.ThumbKey != "" {
 			keys = append(keys, photo.ThumbKey)
 		}
+		keys = append(keys, photo.Key)
 		for _, key := range keys {
 			if err := deleteObject(ctx, key); err != nil {
 				return err
 			}
+			config.ForgetPhotoURL(key)
 		}
 		forgetMeta(photo.Key)
 		return nil
@@ -228,20 +233,29 @@ func RenameAlbum(ctx context.Context, from, to string) error {
 		return nil
 	}
 
-	existing, err := listObjects(ctx, to+"/")
-	if err != nil {
-		return err
-	}
-	if len(existing) > 0 {
-		return ErrAlbumExists
-	}
-
 	objects, err := listObjects(ctx, from+"/")
 	if err != nil {
 		return err
 	}
 	if len(objects) == 0 {
 		return ErrNotFound
+	}
+
+	existing, err := listObjects(ctx, to+"/")
+	if err != nil {
+		return err
+	}
+	// Keys are UUID-based, so an unrelated album never shares one with
+	// "from". A shared key means "to" holds copies from an interrupted run of
+	// this same rename, which is allowed to finish.
+	moving := make(map[string]bool, len(objects))
+	for _, obj := range objects {
+		moving[strings.TrimPrefix(aws.ToString(obj.Key), from)] = true
+	}
+	if len(existing) > 0 && !slices.ContainsFunc(existing, func(obj types.Object) bool {
+		return moving[strings.TrimPrefix(aws.ToString(obj.Key), to)]
+	}) {
+		return ErrAlbumExists
 	}
 
 	g, gctx := errgroup.WithContext(ctx)
@@ -269,6 +283,7 @@ func RenameAlbum(ctx context.Context, from, to string) error {
 		if err := deleteObject(ctx, oldKey); err != nil {
 			return err
 		}
+		config.ForgetPhotoURL(oldKey)
 		newKey := to + strings.TrimPrefix(oldKey, from)
 		metaCacheMu.Lock()
 		if meta, ok := metaCache[oldKey]; ok {

@@ -74,6 +74,12 @@ function encodeJpeg(image: DecodedImage, maxSide: number, quality: number): Prom
 }
 
 export async function prepareUpload(file: File): Promise<PreparedUpload> {
+	// Reject before decoding: a huge non-HEIC file is uploaded as-is, so
+	// decoding it would only waste the phone's memory.
+	if (!isHeic(file) && file.size > MAX_UPLOAD_BYTES) {
+		throw new UploadError('trop volumineuse (max 20 Mo)');
+	}
+
 	const image = await decode(file);
 	try {
 		let photo: Blob = file;
