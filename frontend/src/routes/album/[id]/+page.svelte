@@ -8,6 +8,7 @@
 	import type { Photo } from '$lib/types';
 	import PhotoGrid from '$lib/components/PhotoGrid.svelte';
 	import PhotoViewer from '$lib/components/PhotoViewer.svelte';
+	import Tip from '$lib/components/Tip.svelte';
 
 	// Each upload decodes a full-size photo in memory to make its thumbnail;
 	// more than two at once risks running phones out of memory.
@@ -202,6 +203,7 @@
 				Annuler
 			</button>
 		</form>
+		<p class="mt-2 px-1 text-base text-ink/70">Le nouveau nom sera visible par toute la famille.</p>
 		{#if renameError}
 			<p role="alert" class="mt-2 px-1 text-sm text-red-700">{renameError}</p>
 		{/if}
@@ -221,15 +223,40 @@
 	{/if}
 	<div class="mt-2 mb-5 h-px w-16 bg-ink/20"></div>
 
+	{#if photos.length > 0}
+		<Tip id="album-view">
+			<p>Touchez une photo pour la voir en grand.</p>
+			<p>
+				Ensuite, « Suivant » et « Précédent » passent à la photo d'à côté, et la croix ✕ ramène à
+				l'album. La flèche ← en haut ramène à la liste des albums.
+			</p>
+		</Tip>
+	{/if}
+	{#if $authStore.isAdmin}
+		<Tip id="album-admin">
+			<p>
+				Pour ajouter des photos, touchez le bouton rond « + » en bas à droite, puis choisissez-les
+				dans votre galerie. Vous pouvez en sélectionner plusieurs d'un coup.
+			</p>
+			<p>Les photos d'iPhone sont acceptées. Chaque photo peut faire jusqu'à 20 Mo.</p>
+			<p>
+				« Renommer » change le nom de l'album. Pour supprimer une photo, ouvrez-la en grand et
+				touchez « Supprimer ».
+			</p>
+		</Tip>
+	{/if}
+
 	{#if status === 'loading'}
 		<p class="text-ink/50">Chargement…</p>
 	{:else if status === 'error'}
-		<p class="text-red-700">Impossible de charger les photos.</p>
+		<p class="text-red-700">
+			Impossible de charger les photos. Vérifiez votre connexion internet, puis rechargez la page.
+		</p>
 	{:else if photos.length === 0}
-		<p class="text-ink/50">
+		<p class="text-base text-ink/60">
 			{$authStore.isAdmin
-				? 'Aucune photo dans cet album. Ajoutez-en avec le bouton +.'
-				: 'Aucune photo dans cet album.'}
+				? "Aucune photo dans cet album pour l'instant. Ajoutez-en avec le bouton rond « + » en bas à droite. Tant qu'il n'a pas de photo, l'album n'est pas gardé."
+				: 'Aucune photo dans cet album pour le moment.'}
 		</p>
 	{:else}
 		<PhotoGrid {photos} onSelect={(i) => (activeIndex = i)} />
@@ -276,9 +303,11 @@
 
 	{#if uploading}
 		<div
-			class="fixed inset-x-0 bottom-24 z-30 mx-auto w-fit rounded-full bg-ink px-4 py-2 text-sm text-paper shadow-lg"
+			role="status"
+			class="fixed inset-x-4 bottom-24 z-30 mx-auto w-fit rounded-2xl bg-ink px-4 py-2 text-center text-base text-paper shadow-lg"
 		>
 			Envoi {uploadProgress.done}/{uploadProgress.total}…
+			<span class="block text-sm text-paper/70">Gardez cette page ouverte jusqu'à la fin.</span>
 		</div>
 	{/if}
 {/if}

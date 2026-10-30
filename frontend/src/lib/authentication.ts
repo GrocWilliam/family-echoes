@@ -57,22 +57,38 @@ async function fetchIsAdmin(idToken: string): Promise<boolean> {
 
 // Demande d'envoi du lien de connexion : le backend vérifie d'abord que
 // l'email fait partie de la famille invitée, puis Firebase envoie le lien.
+// Les erreurs affichées sont toujours en français et disent quoi faire : les
+// messages bruts (backend, Firebase, réseau) sont en anglais et techniques.
 export async function requestMagicLink(email: string): Promise<void> {
-	const response = await fetch(`${BACKEND_URL}/api/auth/magic-link`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ email })
-	});
+	const sendFailed =
+		"Le lien n'a pas pu être envoyé. Vérifiez votre connexion internet, puis réessayez.";
 
-	if (!response.ok) {
-		const body = await response.json().catch(() => ({}));
-		throw new Error(body.error ?? "Cet email n'est pas invité à l'album de famille.");
+	let response: Response;
+	try {
+		response = await fetch(`${BACKEND_URL}/api/auth/magic-link`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ email })
+		});
+	} catch {
+		throw new Error(sendFailed);
 	}
 
-	await sendSignInLinkToEmail(auth, email, {
-		url: `${window.location.origin}/auth/callback`,
-		handleCodeInApp: true
-	});
+	if (response.status === 403) {
+		throw new Error(
+			"Cette adresse n'est pas invitée. Vérifiez qu'elle est bien écrite, ou demandez à un membre de la famille de vous ajouter."
+		);
+	}
+	if (!response.ok) throw new Error(sendFailed);
+
+	try {
+		await sendSignInLinkToEmail(auth, email, {
+			url: `${window.location.origin}/auth/callback`,
+			handleCodeInApp: true
+		});
+	} catch {
+		throw new Error(sendFailed);
+	}
 
 	window.localStorage.setItem(EMAIL_STORAGE_KEY, email);
 }
@@ -80,18 +96,30 @@ export async function requestMagicLink(email: string): Promise<void> {
 // À appeler sur la page de callback pour terminer la connexion.
 export async function completeSignInFromLink(url: string): Promise<void> {
 	if (!isSignInWithEmailLink(auth, url)) {
-		throw new Error('Ce lien de connexion est invalide ou a expiré.');
+		throw new Error("Ce lien de connexion n'est pas valide. Demandez-en un nouveau.");
 	}
 
+	// Absent quand le lien est ouvert sur un autre appareil ou navigateur que
+	// celui qui l'a demandé.
 	let email = window.localStorage.getItem(EMAIL_STORAGE_KEY);
 	if (!email) {
-		email = window.prompt('Merci de confirmer votre email pour terminer la connexion :');
+		email = window.prompt(
+			"Vous avez ouvert le lien sur un autre appareil que celui où vous l'avez demandé. Pour terminer, écrivez votre adresse email :"
+		);
 	}
 	if (!email) {
-		throw new Error('Email requis pour terminer la connexion.');
+		throw new Error(
+			'Votre adresse email est nécessaire pour terminer la connexion. Ouvrez à nouveau le lien reçu, ou demandez-en un nouveau.'
+		);
 	}
 
-	await signInWithEmailLink(auth, email, url);
+	try {
+		await signInWithEmailLink(auth, email.trim(), url);
+	} catch {
+		throw new Error(
+			"Ce lien ne fonctionne plus : il a déjà servi, il a expiré, ou l'adresse écrite ne correspond pas. Demandez un nouveau lien."
+		);
+	}
 	window.localStorage.removeItem(EMAIL_STORAGE_KEY);
 }
 

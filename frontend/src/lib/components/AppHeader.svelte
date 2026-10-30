@@ -15,13 +15,21 @@
 			<a href={resolve('/')} class="font-serif text-xl font-semibold tracking-tight text-ink">
 				Echoes
 			</a>
-			<button
-				type="button"
-				class="rounded-full px-3 py-1.5 text-sm text-ink/50 active:bg-ink/5"
-				onclick={handleSignOut}
-			>
-				Déconnexion
-			</button>
+			<div class="flex items-center gap-1">
+				<a
+					href={resolve('/bienvenue')}
+					class="flex min-h-11 items-center rounded-full px-3 text-base text-ink/70 active:bg-ink/5"
+				>
+					❓ Aide
+				</a>
+				<button
+					type="button"
+					class="min-h-11 rounded-full px-3 text-sm text-ink/50 active:bg-ink/5"
+					onclick={handleSignOut}
+				>
+					Déconnexion
+				</button>
+			</div>
 		</div>
 	</header>
 {/if}

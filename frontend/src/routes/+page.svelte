@@ -6,6 +6,7 @@
 	import { authStore } from '$lib/authentication';
 	import type { AlbumSummary } from '$lib/types';
 	import AlbumCard from '$lib/components/AlbumCard.svelte';
+	import Tip from '$lib/components/Tip.svelte';
 
 	let albums = $state<AlbumSummary[]>([]);
 	let status = $state<'loading' | 'ready' | 'error'>('loading');
@@ -54,7 +55,26 @@
 
 	<div class="mt-4 mb-6 h-px w-full bg-ink/10"></div>
 
+	<Tip id="albums">
+		<p>Touchez un album pour voir ses photos.</p>
+		<p>
+			Pour revenir ici à tout moment, touchez « Echoes » en haut de l'écran. Le bouton « ❓ Aide »
+			répond aux questions fréquentes.
+		</p>
+	</Tip>
+	{#if $authStore.isAdmin}
+		<Tip id="albums-admin">
+			<p>
+				Pour créer un album, touchez « + Nouvel album », donnez-lui un nom, puis ajoutez-y des
+				photos.
+			</p>
+		</Tip>
+	{/if}
+
 	{#if showNewAlbum && $authStore.isAdmin}
+		<p class="mb-2 text-base text-ink/70">
+			Après « Créer », ajoutez au moins une photo : un album vide n'est pas gardé.
+		</p>
 		<form onsubmit={createAlbum} class="mb-6 flex gap-2">
 			<input
 				type="text"

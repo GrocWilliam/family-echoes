@@ -118,7 +118,11 @@ verification only:
   server-rendered.
 - Runes mode is forced project-wide via `vite.config.ts` (except inside `node_modules`).
 - Routes: `/` (album list), `/album/[id]` (photos; `id` is the URL-encoded album name),
-  `/auth/login`, `/auth/callback`. The root `+layout.svelte` redirects signed-out users to
-  `/auth/login` everywhere except `/auth/*`.
+  `/bienvenue` (public welcome + FAQ, also the signed-in "Aide" page), `/auth/login`,
+  `/auth/callback`. The root `+layout.svelte` redirects signed-out users to `/bienvenue`
+  everywhere except `/bienvenue` and `/auth/*`.
+- Users are mostly non-technical: UI text is French, plain, and says what to do next.
+  Per-feature help uses `lib/components/Tip.svelte` (dismissible, remembered in
+  `localStorage`; `/bienvenue` can show them all again).
 - `frontend/src/lib/firebase.ts` initializes the Firebase app/client used by `authentication.ts`;
   `frontend/src/lib/api.ts` (`apiFetch`) attaches the ID token to backend calls.
